@@ -1,0 +1,25 @@
+{
+  "name": "webrtc-connection",
+  "version": "1.0.0",
+  "description": "an audio and video transimission app using raw webrtc no library",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "main": "node ./dist/index.js"
+  },
+  "author": "kc",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3",
+    "uuid": "^14.0.1",
+    "ws": "^8.21.2"
+  }
+}
