@@ -6,11 +6,25 @@ const uuid_1 = require("uuid");
 const port = 3000;
 const server = (0, http_1.createServer)((req, res) => {
     const url = req.url || '/';
+    const setCorsHeaders = () => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+    };
     // Helper to send JSON easily
     const sendJson = (status, body) => {
+        setCorsHeaders();
         res.writeHead(status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(body));
     };
+    //Manageoptions
+    if (req.method === 'OPTIONS') {
+        setCorsHeaders();
+        res.writeHead(204);
+        res.end();
+        return;
+    }
     // Route: /webrtc
     if (req.method === 'GET' && url === '/webrtc') {
         console.log('Received GET /webrtc');
@@ -22,6 +36,20 @@ const server = (0, http_1.createServer)((req, res) => {
         };
         sendJson(200, responsePayload);
         return; // Stop execution here so we don't fall through to other logic
+    }
+    if (req.method === 'GET' && url === "/participants") {
+        console.log('receiving get request for participants');
+        const participantIds = Array.from(usersockets.keys());
+        const responsePayload = {
+            status: 'success',
+            data: {
+                message: "connected users",
+                data: participantIds
+            },
+            timestamp: new Date().toISOString(),
+        };
+        sendJson(200, responsePayload);
+        return;
     }
     if (req.method === 'POST' && url === "/webrtc") {
         let body = '';
@@ -40,30 +68,39 @@ const server = (0, http_1.createServer)((req, res) => {
                 throw new Error(error.message);
             }
         });
+        return;
     }
     // Route: / (Home)
     if (url === '/') {
+        setCorsHeaders();
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('Hello World! Server is running.');
         return;
     }
-    // 404 for everything else
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
+    else {
+        // 404 for everything else
+        setCorsHeaders();
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+    }
 });
 const wss = new ws_1.WebSocketServer({ server });
-const room = new Map();
+// const room: Map<string, Set<WebSocket>> = new Map();
 const usersockets = new Map();
-wss.on("connection", (ws) => {
+wss.on('connection', (ws) => {
     const userid = (0, uuid_1.v4)();
     ws.userId = userid;
     ws.currentRoom = null;
     usersockets.set(userid, ws);
+    ws.send(JSON.stringify({
+        type: 'direct-message',
+        content: { 'userid': userid }
+    }));
     ws.on('message', (data, isbinary) => {
         isbinary = false;
         try {
             const message = JSON.parse(data.toString());
-            console.log(message);
+            console.log('message', message);
             //send message to specific user 
             if (message.to) {
                 const check = usersockets.get(message.to);
@@ -73,6 +110,7 @@ wss.on("connection", (ws) => {
                         from: message.from,
                         content: message.text
                     }));
+                    console.log("message sent");
                 }
             }
         }
