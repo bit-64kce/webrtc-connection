@@ -9,15 +9,15 @@ class Webrtc {
     this.peerConnection = new RTCPeerConnection(this.configuration)
     this.socket = new WebSocket("ws://localhost:3000")
     this.socket.onopen = () => {
-
-      console.log("Connected to the WebSocket server");
-      this.socket.send("Hello Server");
+      let data = {
+        userid: localStorage.getItem('userid')
+      }
+      this.socket.send(JSON.stringify(data));
       this.icetirckle()
       this.connection()
 
     };
     this.socket.onclose = (event) => {
-      console.log(event.code)
     }
     this.socket.onmessage = async (event) => {
       let parsed;
@@ -33,20 +33,17 @@ class Webrtc {
       const from = parsed.from
 
       if (!payload) return;
-      if (payload.userid) {
-        let id = payload.userid
-        localStorage.setItem('userid', id);
-      }
       if (payload.offer) {
         this.recievedfrom = from
         await this.peerConnection.setRemoteDescription(
           new RTCSessionDescription(payload.offer)
         );
         const answer = await this.peerConnection.createAnswer();
+        const myid = localStorage.getItem('userid')
         await this.peerConnection.setLocalDescription(answer);
         this.socket.send(JSON.stringify({
           to: parsed.from,          // echo back to the sender
-          from: parsed.to,
+          from: myid,
           text: { answer }
         }));
       }
@@ -64,10 +61,19 @@ class Webrtc {
           console.error('Error adding ICE candidate', error);
         }
       }
+
+      if (payload.userid) {
+        let id = payload.userid;
+        if (id) {
+          if (id !== localStorage.getItem('userid')) {
+            this.participants.push(id)
+            this.appendParticipants((id) => this.makeoffer(id))
+          }
+        }
+      }
     };
   }
   async makeoffer(id) {
-    console.log("making offer")
     const myid = localStorage.getItem('userid')
     const offer = await this.peerConnection.createOffer()
     await this.peerConnection.setLocalDescription(offer)
@@ -113,7 +119,7 @@ class Webrtc {
     }
 
     const streams = await this.getaudiostream(configuration)
-    const audiotracks = streams.getAudioTracks().forEach(tracks => {
+    streams.getAudioTracks().forEach(tracks => {
       this.peerConnection.addTrack(tracks, streams)
     })
 
@@ -123,7 +129,6 @@ class Webrtc {
     let remoteAudio = document.getElementById('audio')
     this.peerConnection.ontrack = (event) => {
       const [remoteStream] = event.streams
-
       if (remoteStream) {
         //attach it to audio html element
         remoteAudio.srcObject = remoteStream
@@ -134,10 +139,23 @@ class Webrtc {
   connection() {
     this.peerConnection.addEventListener('connectionstatechange', () => {
       if (this.peerConnection.connectionState === 'connected') {
-        console.log('connection')
       }
     }
     )
+  }
+
+  icecompleted() {
+    this.peerConnection.addEventListener('icegatheringstatechange', () => {
+      if (this.peerConnection.connectionState === 'failed') {
+        this.peerConnection.setConfiguration(this.configuration)
+        this.peerConnection.restartIce()
+      }
+
+      if (this.peerConnection.iceGatheringState === 'complete') {
+        console.log('ICE gathering complete. Current Local Description:', this.peerConnection.currentLocalDescription);
+        console.log('ICE gathering complete. Current Remote Description:', this.peerConnection.currentRemoteDescription);
+      }
+    })
   }
 
   async getparticipants() {
@@ -155,13 +173,15 @@ class Webrtc {
   appendParticipants(callback) {
     const myid = localStorage.getItem('userid')
     const container = document.getElementById("button-container");
+
+    container.innerHTML = '';
+
     for (let i = 0; i < this.participants.length; i++) {
       if (this.participants[i] !== myid) {
         const button = document.createElement("button");
         button.textContent = this.participants[i];
 
         button.addEventListener("click", () => {
-          console.log("Clicked: " + this.participants[i]);
           this.clickedparticipant = this.participants[i]
           callback(this.participants[i])
         });
@@ -175,6 +195,7 @@ const webrtc = new Webrtc()
 let click = document.getElementById('connect')
 webrtc.rtcrtpsend()
 webrtc.recievingstream()
+webrtc.icecompleted()
 setTimeout(async function () {
   await webrtc.getparticipants()
   webrtc.appendParticipants((id) => webrtc.makeoffer(id))

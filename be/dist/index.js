@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const http_1 = require("http");
 const ws_1 = require("ws");
-const uuid_1 = require("uuid");
 const port = 3000;
 const server = (0, http_1.createServer)((req, res) => {
     const url = req.url || '/';
@@ -88,19 +87,27 @@ const wss = new ws_1.WebSocketServer({ server });
 // const room: Map<string, Set<WebSocket>> = new Map();
 const usersockets = new Map();
 wss.on('connection', (ws) => {
-    const userid = (0, uuid_1.v4)();
-    ws.userId = userid;
-    ws.currentRoom = null;
-    usersockets.set(userid, ws);
-    ws.send(JSON.stringify({
-        type: 'direct-message',
-        content: { 'userid': userid }
-    }));
+    let data;
+    ws.once('message', (dt) => {
+        data = JSON.parse(dt.toString());
+        if (data.userid) {
+            usersockets.set(data.userid, ws);
+            //send userinfo for others
+            const dtbody = JSON.stringify({
+                type: 'direct-message',
+                content: { 'userid': data.userid }
+            });
+            usersockets.forEach((socket, userId) => {
+                if (userId !== data.userid) {
+                    socket.send(dtbody);
+                }
+            });
+        }
+    });
     ws.on('message', (data, isbinary) => {
         isbinary = false;
         try {
             const message = JSON.parse(data.toString());
-            console.log('message', message);
             //send message to specific user 
             if (message.to) {
                 const check = usersockets.get(message.to);
@@ -110,7 +117,6 @@ wss.on('connection', (ws) => {
                         from: message.from,
                         content: message.text
                     }));
-                    console.log("message sent");
                 }
             }
         }
@@ -119,8 +125,8 @@ wss.on('connection', (ws) => {
     });
     //cleanup
     ws.on('close', () => {
-        usersockets.delete(userid);
-        console.log(`User ${userid} is disconnected`);
+        usersockets.delete(data.userid);
+        console.log(`User ${data.userid} is disconnected`);
     });
 });
 server.listen(port, () => {

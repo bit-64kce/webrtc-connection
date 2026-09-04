@@ -1,7 +1,10 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
-import { v4 as uuidv4 } from 'uuid';
 const port = 3000;
+
+type usrdata = {
+  userid: string
+}
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   const url = req.url || '/';
@@ -98,21 +101,28 @@ const usersockets: Map<string, WebSocket> = new Map();
 
 
 wss.on('connection', (ws) => {
-  const userid = uuidv4();
-  (ws as any).userId = userid;
-  (ws as any).currentRoom = null;
-
-  usersockets.set(userid, ws)
-  ws.send(JSON.stringify({
-    type: 'direct-message',
-    content: { 'userid': userid }
-  }))
+  let data: usrdata;
+  ws.once('message', (dt: string) => {
+    data = JSON.parse(dt.toString())
+    if (data.userid) {
+      usersockets.set(data.userid, ws)
+      //send userinfo for others
+      const dtbody = JSON.stringify({
+        type: 'direct-message',
+        content: { 'userid': data.userid }
+      })
+      usersockets.forEach((socket, userId) => {
+        if (userId !== data.userid) {
+          socket.send(dtbody);
+        }
+      });
+    }
+  })
 
   ws.on('message', (data, isbinary,) => {
     isbinary = false;
     try {
       const message = JSON.parse(data.toString());
-      console.log('message', message)
       //send message to specific user 
       if (message.to) {
         const check = usersockets.get(message.to)
@@ -122,7 +132,6 @@ wss.on('connection', (ws) => {
             from: message.from,
             content: message.text
           }))
-          console.log("message sent")
         }
       }
     } catch (err) {
@@ -131,8 +140,8 @@ wss.on('connection', (ws) => {
   })
   //cleanup
   ws.on('close', () => {
-    usersockets.delete(userid)
-    console.log(`User ${userid} is disconnected`)
+    usersockets.delete(data.userid)
+    console.log(`User ${data.userid} is disconnected`)
   })
 })
 
