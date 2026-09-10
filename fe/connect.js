@@ -1,8 +1,11 @@
+import { dtx } from "./sdp"
+
+
 class Webrtc {
   configuration = { 'iceServers': [{ 'urls': "stun:stun.l.google.com:19302" }] }
   peerConnection
   socket
-  participants
+  participants = []
   clickedparticipant
   recievedfrom
   constructor() {
@@ -15,6 +18,7 @@ class Webrtc {
       this.socket.send(JSON.stringify(data));
       this.icetirckle()
       this.connection()
+
 
     };
     this.socket.onclose = (event) => {
@@ -39,8 +43,9 @@ class Webrtc {
           new RTCSessionDescription(payload.offer)
         );
         const answer = await this.peerConnection.createAnswer();
+        const modifiedSDP = dtx(answer)
         const myid = localStorage.getItem('userid')
-        await this.peerConnection.setLocalDescription(answer);
+        await this.peerConnection.setLocalDescription(modifiedSDP);
         this.socket.send(JSON.stringify({
           to: parsed.from,          // echo back to the sender
           from: myid,
@@ -74,15 +79,24 @@ class Webrtc {
     };
   }
   async makeoffer(id) {
-    const myid = localStorage.getItem('userid')
-    const offer = await this.peerConnection.createOffer()
-    await this.peerConnection.setLocalDescription(offer)
-    //sendoffer using ws {offer:offer}
-    this.socket.send(JSON.stringify({
-      to: id,
-      from: myid,
-      text: { 'offer': offer }
-    }))
+    try {
+      const myid = localStorage.getItem('userid')
+      const offer = await this.peerConnection.createOffer()
+      console.log(offer.sdp, typeof offer)
+      // Add DTX while keeping everything else
+      const modifiedSDP = dtx(offer.sdp)
+      console.log(modifiedSDP)
+      await this.peerConnection.setLocalDescription(modifiedSDP)
+      //sendoffer using ws {offer:offer}
+      this.socket.send(JSON.stringify({
+        to: id,
+        from: myid,
+        text: { 'offer': offer }
+      }))
+
+    } catch (error) {
+      console.log(error)
+    }
     //
   }
 
@@ -133,6 +147,55 @@ class Webrtc {
         //attach it to audio html element
         remoteAudio.srcObject = remoteStream
         remoteAudio.play()
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 300;
+        canvas.height = 150;
+        document.body.appendChild(canvas);
+        const canvasCtx = canvas.getContext('2d');
+
+        // Audio analyser setup
+        const audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(remoteStream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+
+        const bufferLength = analyser.fftSize;
+        const dataArray = new Uint8Array(bufferLength);
+
+        // Draw function that uses closures instead of parameters
+
+        function draw() {
+          requestAnimationFrame(draw);
+
+          analyser.getByteTimeDomainData(dataArray);
+
+          canvasCtx.fillStyle = "rgb(200 200 200)";
+          canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+          canvasCtx.lineWidth = 2;
+          canvasCtx.strokeStyle = "rgb(0 0 0)";
+          canvasCtx.beginPath();
+
+          const sliceWidth = canvas.width / bufferLength;
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = (v * canvas.height) / 2;
+            if (i === 0) {
+              canvasCtx.moveTo(x, y);
+            } else {
+              canvasCtx.lineTo(x, y);
+            }
+            x += sliceWidth;
+          }
+
+          canvasCtx.lineTo(canvas.width, canvas.height / 2);
+          canvasCtx.stroke();
+        }
+
+        draw();
       }
     }
   }
@@ -189,6 +252,7 @@ class Webrtc {
       }
     }
   }
+
 }
 
 const webrtc = new Webrtc()
