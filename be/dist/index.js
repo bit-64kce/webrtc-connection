@@ -9,7 +9,7 @@ const server = (0, http_1.createServer)((req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-        res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+        res.setHeader('Access-Control-Max-Age', '86400');
     };
     // Helper to send JSON easily
     const sendJson = (status, body) => {
@@ -88,26 +88,40 @@ const wss = new ws_1.WebSocketServer({ server });
 const usersockets = new Map();
 wss.on('connection', (ws) => {
     let data;
-    ws.once('message', (dt) => {
-        data = JSON.parse(dt.toString());
-        if (data.userid) {
-            usersockets.set(data.userid, ws);
-            //send userinfo for others
-            const dtbody = JSON.stringify({
-                type: 'direct-message',
-                content: { 'userid': data.userid }
-            });
-            usersockets.forEach((socket, userId) => {
-                if (userId !== data.userid) {
-                    socket.send(dtbody);
+    ws.once('message', async (dt) => {
+        try {
+            data = JSON.parse(dt.toString());
+            if (data.userid) {
+                if (!usersockets.get(data.userid)) {
+                    usersockets.set(data.userid, ws);
+                    //send userinfo for others
+                    const dtbody = JSON.stringify({
+                        type: 'direct-message',
+                        content: { 'userid': data.userid }
+                    });
+                    usersockets.forEach((socket, userId) => {
+                        if (userId !== data.userid) {
+                            socket.send(dtbody);
+                        }
+                    });
                 }
-            });
+                else {
+                    throw new Error("useralready exist");
+                }
+            }
+            else {
+                throw new Error("user not found");
+            }
+        }
+        catch (error) {
+            throw error;
         }
     });
     ws.on('message', (data, isbinary) => {
         isbinary = false;
         try {
             const message = JSON.parse(data.toString());
+            console.log(message);
             //send message to specific user 
             if (message.to) {
                 const check = usersockets.get(message.to);
@@ -121,6 +135,7 @@ wss.on('connection', (ws) => {
             }
         }
         catch (err) {
+            throw new Error("invalid json structure");
         }
     });
     //cleanup

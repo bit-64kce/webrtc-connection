@@ -1,4 +1,4 @@
-import { dtx } from "./sdp"
+import { dtx } from "./sdp.js"
 
 
 class Webrtc {
@@ -10,6 +10,7 @@ class Webrtc {
   recievedfrom
   constructor() {
     this.peerConnection = new RTCPeerConnection(this.configuration)
+    this.createChannel()
     this.socket = new WebSocket("ws://localhost:3000")
     this.socket.onopen = () => {
       let data = {
@@ -43,9 +44,13 @@ class Webrtc {
           new RTCSessionDescription(payload.offer)
         );
         const answer = await this.peerConnection.createAnswer();
-        const modifiedSDP = dtx(answer)
+        console.log('answer', answer)
+        const modifiedSDP = dtx(answer.sdp)
+        const newanswer = answer
         const myid = localStorage.getItem('userid')
-        await this.peerConnection.setLocalDescription(modifiedSDP);
+        newanswer.sdp = modifiedSDP
+        console.log('newanswer', newanswer)
+        await this.peerConnection.setLocalDescription(newanswer);
         this.socket.send(JSON.stringify({
           to: parsed.from,          // echo back to the sender
           from: myid,
@@ -70,7 +75,7 @@ class Webrtc {
       if (payload.userid) {
         let id = payload.userid;
         if (id) {
-          if (id !== localStorage.getItem('userid')) {
+          if (id !== localStorage.getItem('userid') && !this.participants.includes(payload.userid)) {
             this.participants.push(id)
             this.appendParticipants((id) => this.makeoffer(id))
           }
@@ -85,8 +90,11 @@ class Webrtc {
       console.log(offer.sdp, typeof offer)
       // Add DTX while keeping everything else
       const modifiedSDP = dtx(offer.sdp)
+      const newoffer = offer
+      newoffer.sdp = modifiedSDP
       console.log(modifiedSDP)
-      await this.peerConnection.setLocalDescription(modifiedSDP)
+      console.log('newoffer', newoffer)
+      await this.peerConnection.setLocalDescription(newoffer)
       //sendoffer using ws {offer:offer}
       this.socket.send(JSON.stringify({
         to: id,
@@ -98,6 +106,41 @@ class Webrtc {
       console.log(error)
     }
     //
+  }
+
+  async createChannel() {
+    try {
+      const datachannel = this.peerConnection.createDataChannel("data")
+      datachannel.addEventListener('open', () => {
+        datachannel.send('hello user')
+
+      })
+    } catch (error) {
+      console.log(error)
+    }
+  }
+
+  async waitforChannel() {
+    try {
+      const datachannel = this.peerConnection.addEventListener('datachannel', (event) => {
+        const dc = event.channel;
+        dc.addEventListener('open', () => {
+          dc.send('hello from this side as well')
+        })
+      })
+      datachannel.addEventListener("message", (event) => {
+        console.log("Received:", event.data);
+
+        // if it's binary and you expect text:
+        // const text = new TextDecoder().decode(event.data);
+
+        // if it's a JSON string:
+        // const obj = JSON.parse(event.data);
+        datachannel.addEventListener("close", () => console.log("closed"));
+        datachannel.addEventListener("error", (e) => console.error(e.error));
+      });
+    } catch (error) {
+    }
   }
 
 
@@ -202,6 +245,13 @@ class Webrtc {
   connection() {
     this.peerConnection.addEventListener('connectionstatechange', () => {
       if (this.peerConnection.connectionState === 'connected') {
+        console.log("connected")
+        this.waitforChannel()
+      }
+      if (this.peerConnection.connectionState === 'failed') {
+        this.peerConnection.restartIce()
+        const id = this.clickedparticipant
+        this.makeoffer(id)
       }
     }
     )
@@ -233,6 +283,15 @@ class Webrtc {
     return this.participants
   }
 
+  async checkforreload() {
+    const usr = document.getElementById('participants')
+
+    if (usr) {
+      return true
+    }
+    return false
+  }
+
   appendParticipants(callback) {
     const myid = localStorage.getItem('userid')
     const container = document.getElementById("button-container");
@@ -242,6 +301,7 @@ class Webrtc {
     for (let i = 0; i < this.participants.length; i++) {
       if (this.participants[i] !== myid) {
         const button = document.createElement("button");
+        button.setAttribute('id', '')
         button.textContent = this.participants[i];
 
         button.addEventListener("click", () => {
